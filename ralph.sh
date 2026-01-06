@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 #
 # ralph.sh - Ralph Wiggum loop with git worktree isolation
-# Based on Matt Pocock's approach
+# Based on Matt Pocock's approach with Docker sandboxing
 #
 set -e
+
+# Get script directory (where Dockerfile lives)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Colors
 GREEN='\033[0;32m'
@@ -21,6 +24,9 @@ INIT_DESC=""
 MAIN_REPO=""
 WORKTREE_PATH=""
 WORKTREE_BRANCH=""
+FORCE_DOCKER=""
+FORCE_NO_DOCKER=""
+USE_DOCKER=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -33,17 +39,32 @@ while [[ $# -gt 0 ]]; do
             ITERATIONS="$2"
             shift 2
             ;;
+        --docker)
+            FORCE_DOCKER=true
+            shift
+            ;;
+        --no-docker)
+            FORCE_NO_DOCKER=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: ralph [options]"
             echo ""
             echo "Options:"
             echo "  --init \"description\"  Bootstrap mode: generate PRD from description"
             echo "  -n, --iterations N    Max iterations (default: 50)"
+            echo "  --docker              Force Docker mode (error if unavailable)"
+            echo "  --no-docker           Force bare mode (requires consent)"
             echo "  -h, --help            Show this help"
             echo ""
             echo "Files:"
             echo "  prd.json              Task list (required unless using --init)"
             echo "  RALPH_TOOLS.md        Project-specific instructions (optional)"
+            echo ""
+            echo "Docker:"
+            echo "  If Docker is available, ralph runs Claude in a sandboxed container."
+            echo "  Without Docker, you must explicitly accept the risk of running"
+            echo "  with --dangerously-skip-permissions on your host system."
             exit 0
             ;;
         *)
@@ -99,6 +120,35 @@ cleanup_worktree() {
     fi
 }
 
+# --- Docker Functions ---
+
+docker_available() {
+    command -v docker &>/dev/null && docker info &>/dev/null 2>&1
+}
+
+build_docker_image() {
+    if ! docker image inspect ralph-claude &>/dev/null; then
+        log "Building ralph-claude Docker image..."
+        docker build -t ralph-claude "$SCRIPT_DIR"
+    fi
+}
+
+run_claude_docker() {
+    local prompt="$1"
+    docker run --rm -i \
+        -v "$PWD:/workspace" \
+        -v "$HOME/.claude:/root/.claude:ro" \
+        -v "$HOME/.claude.json:/root/.claude.json:ro" \
+        -w /workspace \
+        ralph-claude \
+        --dangerously-skip-permissions -p "$prompt"
+}
+
+run_claude_bare() {
+    local prompt="$1"
+    claude --dangerously-skip-permissions -p "$prompt"
+}
+
 # Handle Ctrl+C
 trap_handler() {
     echo ""
@@ -110,6 +160,45 @@ trap_handler() {
     exit 130
 }
 trap trap_handler INT TERM
+
+# --- Docker/Bare Mode Selection ---
+
+if [[ -n "$FORCE_DOCKER" ]]; then
+    if docker_available; then
+        USE_DOCKER=true
+    else
+        error "Docker requested but not available"
+        exit 1
+    fi
+elif [[ -n "$FORCE_NO_DOCKER" ]]; then
+    USE_DOCKER=false
+elif docker_available; then
+    USE_DOCKER=true
+else
+    USE_DOCKER=false
+fi
+
+# Require consent for bare mode
+if [[ "$USE_DOCKER" == "false" ]]; then
+    echo ""
+    warn "Docker not available. Running without process isolation."
+    warn "Claude will have full access to your system with --dangerously-skip-permissions."
+    echo ""
+    read -p "Type 'I accept the risk' to continue: " consent
+    if [[ "$consent" != "I accept the risk" ]]; then
+        error "Aborted. Install Docker for safer execution."
+        exit 1
+    fi
+    echo ""
+fi
+
+# Build Docker image if needed
+if [[ "$USE_DOCKER" == "true" ]]; then
+    build_docker_image
+    log "Using Docker sandbox"
+else
+    warn "Using bare mode (no sandbox)"
+fi
 
 # --- Pre-flight Checks ---
 
@@ -186,6 +275,7 @@ cat > progress.txt <<EOF
 Started: $(date)
 Main repo: $MAIN_REPO
 Worktree: $WORKTREE_PATH
+Mode: $(if [[ "$USE_DOCKER" == "true" ]]; then echo "Docker"; else echo "Bare"; fi)
 
 EOF
 
@@ -254,7 +344,12 @@ for ((i=1; i<=ITERATIONS; i++)); do
     log "=== Iteration $i/$ITERATIONS ==="
 
     PROMPT=$(build_prompt)
-    result=$(claude --dangerously-skip-permissions -p "$PROMPT" 2>&1) || true
+
+    if [[ "$USE_DOCKER" == "true" ]]; then
+        result=$(run_claude_docker "$PROMPT" 2>&1) || true
+    else
+        result=$(run_claude_bare "$PROMPT" 2>&1) || true
+    fi
 
     echo "$result"
 
