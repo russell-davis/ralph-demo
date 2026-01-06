@@ -1,0 +1,23 @@
+[
+  {
+    "feature": "Example feature 1",
+    "category": "core",
+    "description": "Description of what this feature does",
+    "tested": false,
+    "steps": [
+      "User does X",
+      "System responds with Y",
+      "Result is Z"
+    ]
+  },
+  {
+    "feature": "Example feature 2",
+    "category": "enhancement",
+    "description": "Another feature to implement",
+    "tested": false,
+    "steps": [
+      "Step 1",
+      "Step 2"
+    ]
+  }
+]
