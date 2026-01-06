@@ -1,0 +1,36 @@
+# Ralph Tools Guide
+
+Copy this file to your project as `RALPH_TOOLS.md` and customize it.
+
+## Testing
+
+- Unit tests: `npm test`
+- E2E tests: `npm run test:e2e`
+- Type checking: `npm run typecheck`
+- Linting: `npm run lint`
+
+## Browser Automation
+
+You have access to Playwright MCP for browser automation. Use it for:
+- E2E testing
+- Visual verification
+- Form interaction testing
+- Screenshot comparisons
+
+## Build
+
+- Development: `npm run dev` (starts on port 3000)
+- Production build: `npm run build`
+- Preview build: `npm run preview`
+
+## Project Structure
+
+- `src/` - Source code
+- `tests/` - Test files
+- `public/` - Static assets
+
+## Important Notes
+
+- Always run tests before committing
+- Follow existing code style
+- Update types when changing interfaces
